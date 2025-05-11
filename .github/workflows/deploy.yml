@@ -1,42 +1,84 @@
-name: Deploy Static Site and Docker Image
+name: Lint, Build, Deploy HTML, and Push Docker Image
 
 on:
   push:
     branches:
       - '**'
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    env:
-      BRANCH_NAME: ${{ github.ref_name }}
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
+jobs:
+  lint-html:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
 
-      - name: Print current branch
-        run: echo "Deploying from branch $BRANCH_NAME"
+      - name: Install htmlhint
+        run: npm install -g htmlhint
 
-      # GitHub Pages
-      - name: Copy index.html to branch folder
+      - name: Lint HTML
+        run: htmlhint index.html
+
+  build-htmls:
+    runs-on: ubuntu-latest
+    needs: lint-html
+    env:
+      BRANCH_NAME: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Prepare HTML output
         run: |
-          mkdir -p out/$BRANCH_NAME
-          cp index.html out/$BRANCH_NAME/index.html
+          mkdir -p output/${BRANCH_NAME}
+          cp index.html output/${BRANCH_NAME}/index.html
+
+      - name: Upload HTMLs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-html
+          path: output
+
+  deploy-pages:
+    runs-on: ubuntu-latest
+    needs: build-htmls
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download HTML artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: output-html
+          path: created_htmls
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: created_htmls
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./out
-          keep_files: true
+        id: deployment
+        uses: actions/deploy-pages@v4
 
-      # DockerHub
-      - name: Docker login
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+  docker-push:
+    runs-on: ubuntu-latest
+    needs: build-htmls
+    env:
+      BRANCH_NAME: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Log in to DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKER_USERNAME }}/si-2025-lab3:${BRANCH_NAME}-latest .
 
       - name: Push Docker image
         run: docker push ${{ secrets.DOCKER_USERNAME }}/si-2025-lab3:${BRANCH_NAME}-latest
-
