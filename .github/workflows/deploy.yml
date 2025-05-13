@@ -54,6 +54,9 @@ jobs:
           name: output-html
           path: created_htmls
 
+      - name: List downloaded stuff
+        run: ls -al created_htmls
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
